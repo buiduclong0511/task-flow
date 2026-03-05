@@ -313,12 +313,6 @@
     align-items: center;
     gap: 14px;
     transition: all 0.2s;
-    animation: fadeIn 0.25s ease;
-  }
-
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(-8px); }
-    to { opacity: 1; transform: translateY(0); }
   }
 
   .task-item:hover { border-color: var(--muted); }
@@ -349,7 +343,7 @@
   .task-info { flex: 1; min-width: 0; }
 
   .task-name {
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
@@ -360,7 +354,7 @@
   .task-name.done-text { text-decoration: line-through; color: var(--text); opacity: 0.7; }
 
   .task-time-info {
-    font-size: 11px;
+    font-size: 13px;
     color: var(--muted);
     display: flex;
     gap: 12px;
@@ -549,9 +543,24 @@
   .sync-status.error { color: var(--danger); }
 
   @media (max-width: 600px) {
-    .timer-display { font-size: 26px; }
-    .active-name { font-size: 18px; }
+    .container { padding: 16px 12px; }
+    .header { margin-bottom: 24px; }
+    .logo { font-size: 22px; }
+    .timer-display { font-size: 24px; }
+    .active-name { font-size: 16px; }
+    .active-card { padding: 16px; }
+    .active-meta { gap: 10px; flex-direction: column; align-items: flex-start; }
+    .active-actions { flex-direction: column; }
+    .active-actions .btn { width: 100%; justify-content: center; }
     .add-row { flex-direction: column; }
+    .add-row select, .add-row .btn { width: 100%; }
+    .summary-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .stat-card { padding: 12px; }
+    .stat-value { font-size: 16px; }
+    .task-item { padding: 12px; gap: 10px; flex-wrap: wrap; }
+    .task-actions { width: 100%; justify-content: flex-end; }
+    .task-name { white-space: normal; }
+    .task-time-info { font-size: 11px; }
   }
 </style>
 </head>
@@ -617,6 +626,7 @@
       <div class="input-wrap">
         <input type="text" id="task-input" placeholder="Tên task (vd: Fix bug #142, Review PR...)" autocomplete="off" />
       </div>
+      <input type="number" id="estimate-input" placeholder="Giờ (vd: 0.5, 1, 2)" min="0" step="0.1" style="width:140px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 14px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none;" />
       <select id="priority-select">
         <option value="high">🔴 High</option>
         <option value="medium" selected>🟡 Medium</option>
@@ -832,12 +842,17 @@
     if (!name) { input.focus(); return; }
 
     const priority = document.getElementById('priority-select').value;
+    const estimateInput = document.getElementById('estimate-input');
+    const estimateHours = parseFloat(estimateInput.value) || 0;
+    const estimateMs = estimateHours * 3600000;
     const task = {
       id: uid(),
       name,
       priority,
       status: 'idle',
       elapsed: 0,
+      estimateMs: estimateMs || null,
+      notified20: false,
       startedAt: null,
       createdAt: Date.now(),
       completedAt: null,
@@ -845,6 +860,7 @@
 
     tasks.unshift(task);
     input.value = '';
+    estimateInput.value = '';
 
     // If there's an active task, pause it first
     if (activeId) {
@@ -927,7 +943,10 @@
     const hasPending = tasks.some(t => t.status === 'pending');
     if (activeId || hasPending) {
       tickInterval = setInterval(() => {
-        if (activeId) renderActive();
+        if (activeId) {
+          renderActive();
+          checkDeadlineNotification();
+        }
         if (hasPending) tickPendingSince();
         renderStats();
       }, 1000);
@@ -957,6 +976,12 @@
         <div class="active-name">${escHtml(task.name)}</div>
         <div class="active-meta">
           <div class="timer-display" id="active-timer">${fmtTime(elapsed)}</div>
+          ${task.estimateMs ? (() => {
+            const remaining = task.estimateMs - elapsed;
+            const color = remaining <= 0 ? 'var(--danger)' : remaining <= task.estimateMs * 0.2 ? 'var(--warn)' : 'var(--success)';
+            const text = remaining > 0 ? '⏳ Còn: ' + fmtShort(remaining) : '⚠ Quá hạn: ' + fmtShort(Math.abs(remaining));
+            return `<div style="font-size:18px;font-weight:600;color:${color};">${text}</div>`;
+          })() : ''}
           <span class="status-pill status-active">ACTIVE</span>
           <span class="status-pill ${priorityClass(task.priority)}" style="border-radius:20px;padding:3px 10px;font-size:10px;">${task.priority.toUpperCase()}</span>
         </div>
@@ -991,6 +1016,7 @@
             <div class="task-time-info">
               <span class="time-chip elapsed">⏱ Đã làm: ${fmtShort(elapsed)}</span>
               <span class="time-chip pending-time" data-pending-since="${task.startedAt || task.createdAt}">⏳ Pending từ: ${timeSince(task.startedAt || task.createdAt)}</span>
+              ${estimateChip(task)}
             </div>
           </div>
           <div class="task-actions">
@@ -1004,6 +1030,16 @@
     }
 
     el.innerHTML = html;
+  }
+
+  function estimateChip(task) {
+    if (!task.estimateMs) return '';
+    const elapsed = task.elapsed || getElapsed(task);
+    const remaining = task.estimateMs - elapsed;
+    if (remaining > 0) {
+      return `<span class="time-chip" style="color:var(--success);">⏳ Còn: ${fmtShort(remaining)}</span>`;
+    }
+    return `<span class="time-chip" style="color:var(--danger);">⚠ Quá hạn: ${fmtShort(Math.abs(remaining))}</span>`;
   }
 
   function tickPendingSince() {
@@ -1035,6 +1071,7 @@
           <div class="task-name done-text">${escHtml(task.name)}</div>
           <div class="task-time-info">
             <span class="time-chip">Total: ${fmtShort(elapsed)}</span>
+              ${estimateChip(task)}
           </div>
         </div>
         <div class="task-actions">
@@ -1067,6 +1104,28 @@
 
   function escHtml(str) {
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Notifications ────────────────────────────────────────
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+
+  function checkDeadlineNotification() {
+    const task = activeId ? tasks.find(t => t.id === activeId) : null;
+    if (!task || !task.estimateMs || task.notified20) return;
+    const elapsed = getElapsed(task);
+    const remaining = task.estimateMs - elapsed;
+    if (remaining <= task.estimateMs * 0.2 && remaining > 0) {
+      task.notified20 = true;
+      save();
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('TaskFlow — Sắp hết thời gian!', {
+          body: `"${task.name}" chỉ còn ${fmtShort(remaining)}`,
+          icon: 'favicon.png'
+        });
+      }
+    }
   }
 
   // ── Clock ──────────────────────────────────────────────
