@@ -328,7 +328,7 @@
   }
 
   .task-item.done {
-    opacity: 0.4;
+    opacity: 0.7;
     border-left: 3px solid var(--success);
   }
 
@@ -356,7 +356,7 @@
     margin-bottom: 3px;
   }
 
-  .task-name.done-text { text-decoration: line-through; color: var(--muted); }
+  .task-name.done-text { text-decoration: line-through; color: var(--text); opacity: 0.7; }
 
   .task-time-info {
     font-size: 11px;
@@ -458,6 +458,95 @@
     margin: 24px 0;
   }
 
+  /* Auth UI */
+  .auth-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .btn-google {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: #fff;
+    color: #333;
+    border: none;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .btn-google:hover { background: #f0f0f0; transform: translateY(-1px); }
+
+  .btn-google img {
+    width: 16px;
+    height: 16px;
+  }
+
+  .user-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .user-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+  }
+
+  .user-name {
+    font-size: 12px;
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  .btn-logout {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .btn-logout:hover { color: var(--danger); border-color: var(--danger); }
+
+  .auth-wall {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 2;
+  }
+
+  .auth-wall .btn-google {
+    margin-top: 20px;
+    padding: 12px 24px;
+    font-size: 14px;
+  }
+
+  .sync-status {
+    font-size: 10px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .sync-status.syncing { color: var(--accent2); }
+  .sync-status.synced { color: var(--success); }
+  .sync-status.error { color: var(--danger); }
+
   @media (max-width: 600px) {
     .timer-display { font-size: 26px; }
     .active-name { font-size: 18px; }
@@ -474,11 +563,29 @@
       <div class="logo">Task<span>Flow</span></div>
       <div style="font-size:11px;color:var(--muted);margin-top:4px;">Time tracking for interrupted workflows</div>
     </div>
-    <div class="header-meta">
-      <div id="live-clock">--:--:--</div>
-      <div id="today-date" style="color:var(--muted);">--</div>
+    <div style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;">
+      <div class="header-meta">
+        <div id="live-clock">--:--:--</div>
+        <div id="today-date" style="color:var(--muted);">--</div>
+        <div id="sync-status" class="sync-status"></div>
+      </div>
+      <div id="auth-bar" class="auth-bar"></div>
     </div>
   </div>
+
+  <!-- Auth Wall (shown when not logged in) -->
+  <div id="auth-wall" class="auth-wall" style="display:none;">
+    <div style="font-size:48px;margin-bottom:16px;">&#9201;</div>
+    <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:var(--text);margin-bottom:8px;">Chào mừng đến TaskFlow</div>
+    <div>Đăng nhập để đồng bộ tasks trên mọi thiết bị</div>
+    <button class="btn-google" onclick="googleLogin()">
+      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G" />
+      Đăng nhập với Google
+    </button>
+  </div>
+
+  <!-- App content (hidden when not logged in) -->
+  <div id="app-content" style="display:none;">
 
   <!-- Stats -->
   <div class="summary-grid" id="stats-grid">
@@ -527,13 +634,37 @@
   <!-- Done -->
   <div id="done-section"></div>
 
+  </div><!-- /app-content -->
+
 </div>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
 <script>
+  // ── Firebase Config ─────────────────────────────────────
+  const firebaseConfig = {
+    apiKey: "AIzaSyDa9plj2Aud57nIozm1wTnDUVguUvR-TVI",
+    authDomain: "task-flow-230d3.firebaseapp.com",
+    projectId: "task-flow-230d3",
+    storageBucket: "task-flow-230d3.firebasestorage.app",
+    messagingSenderId: "21819695719",
+    appId: "1:21819695719:web:94131182a2fa35cc962ac2",
+    measurementId: "G-FZWWDHM69B"
+  };
+
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+  const googleProvider = new firebase.auth.GoogleAuthProvider();
+
   // ── State ──────────────────────────────────────────────
-  let tasks = JSON.parse(localStorage.getItem('taskflow_tasks') || '[]');
-  let activeId = localStorage.getItem('taskflow_active') || null;
+  let tasks = [];
+  let activeId = null;
   let tickInterval = null;
+  let currentUser = null;
+  let unsubFirestore = null;
 
   // ── Helpers ────────────────────────────────────────────
   function fmtTime(ms) {
@@ -563,9 +694,115 @@
   }
 
   function save() {
+    // Local cache
     localStorage.setItem('taskflow_tasks', JSON.stringify(tasks));
     localStorage.setItem('taskflow_active', activeId || '');
+    // Sync to Firestore
+    if (currentUser) syncToFirestore();
   }
+
+  // ── Auth ─────────────────────────────────────────────────
+  function googleLogin() {
+    auth.signInWithPopup(googleProvider).catch(err => {
+      console.error('Login failed:', err);
+      alert('Đăng nhập thất bại: ' + err.message);
+    });
+  }
+
+  function logout() {
+    auth.signOut();
+  }
+
+  function renderAuthBar() {
+    const el = document.getElementById('auth-bar');
+    if (currentUser) {
+      el.innerHTML = `
+        <div class="user-info">
+          <img class="user-avatar" src="${escHtml(currentUser.photoURL || '')}" alt="" referrerpolicy="no-referrer" />
+          <span class="user-name">${escHtml(currentUser.displayName || currentUser.email)}</span>
+        </div>
+        <button class="btn-logout" onclick="logout()">Đăng xuất</button>`;
+    } else {
+      el.innerHTML = '';
+    }
+  }
+
+  function setSyncStatus(status, text) {
+    const el = document.getElementById('sync-status');
+    el.className = 'sync-status ' + status;
+    el.textContent = text;
+  }
+
+  // ── Firestore Sync ──────────────────────────────────────
+  async function syncToFirestore() {
+    if (!currentUser) return;
+    setSyncStatus('syncing', 'Đang đồng bộ...');
+    try {
+      const docRef = db.collection('users').doc(currentUser.uid);
+      await docRef.set({
+        tasks: JSON.parse(JSON.stringify(tasks)),
+        activeId: activeId || null,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+      setSyncStatus('synced', 'Đã đồng bộ');
+    } catch (err) {
+      console.error('Sync failed:', err);
+      setSyncStatus('error', 'Lỗi đồng bộ');
+    }
+  }
+
+  function listenFirestore() {
+    if (unsubFirestore) unsubFirestore();
+    if (!currentUser) return;
+
+    const docRef = db.collection('users').doc(currentUser.uid);
+    unsubFirestore = docRef.onSnapshot(snap => {
+      if (!snap.exists) {
+        // First time user — push local data up
+        syncToFirestore();
+        return;
+      }
+      const data = snap.data();
+      if (data.tasks) {
+        tasks = data.tasks;
+        activeId = data.activeId || null;
+        // Update local cache
+        localStorage.setItem('taskflow_tasks', JSON.stringify(tasks));
+        localStorage.setItem('taskflow_active', activeId || '');
+        render();
+        setSyncStatus('synced', 'Đã đồng bộ');
+      }
+    }, err => {
+      console.error('Firestore listen error:', err);
+      setSyncStatus('error', 'Lỗi kết nối');
+    });
+  }
+
+  // ── Auth State Listener ─────────────────────────────────
+  auth.onAuthStateChanged(user => {
+    currentUser = user;
+    renderAuthBar();
+
+    if (user) {
+      document.getElementById('auth-wall').style.display = 'none';
+      document.getElementById('app-content').style.display = 'block';
+      // Load from local cache first for instant display
+      tasks = JSON.parse(localStorage.getItem('taskflow_tasks') || '[]');
+      activeId = localStorage.getItem('taskflow_active') || null;
+      render();
+      // Then listen to Firestore for real-time sync
+      listenFirestore();
+    } else {
+      document.getElementById('auth-wall').style.display = 'block';
+      document.getElementById('app-content').style.display = 'none';
+      if (unsubFirestore) {
+        unsubFirestore();
+        unsubFirestore = null;
+      }
+      tasks = [];
+      activeId = null;
+    }
+  });
 
   function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -832,7 +1069,7 @@
   });
 
   // ── Init ───────────────────────────────────────────────
-  render();
+  // render() is called by auth.onAuthStateChanged
 </script>
 </body>
 </html>
