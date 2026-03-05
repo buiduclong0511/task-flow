@@ -631,7 +631,7 @@
       <div class="input-wrap">
         <input type="text" id="task-input" placeholder="Tên task (vd: Fix bug #142, Review PR...)" autocomplete="off" />
       </div>
-      <input type="number" id="estimate-input" placeholder="Giờ (vd: 0.5, 1, 2)" min="0" step="0.1" style="width:140px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 14px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none;" />
+      <input type="text" id="estimate-input" inputmode="decimal" placeholder="Giờ (vd: 0.5, 1, 2)" style="width:140px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 14px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none;" />
       <select id="priority-select">
         <option value="high">🔴 High</option>
         <option value="medium" selected>🟡 Medium</option>
@@ -1075,7 +1075,7 @@
         <div class="task-info">
           <div class="task-name done-text">${escHtml(task.name)}</div>
           <div class="task-time-info">
-            <span class="time-chip">Total: ${fmtShort(elapsed)}</span>
+            <span class="time-chip">Total: ${fmtShort(elapsed)} (${(elapsed / 3600000).toFixed(2)}h)</span>
               ${estimateChip(task)}
           </div>
         </div>
