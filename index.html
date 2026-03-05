@@ -332,18 +332,6 @@
     border-left: 3px solid var(--success);
   }
 
-  .task-priority {
-    width: 28px; height: 28px;
-    border-radius: 6px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 11px;
-    font-weight: 700;
-    flex-shrink: 0;
-  }
-
-  .priority-high { background: rgba(255,71,87,0.15); color: var(--danger); }
-  .priority-medium { background: rgba(255,165,2,0.15); color: var(--warn); }
-  .priority-low { background: rgba(71,200,255,0.15); color: var(--accent2); }
 
   .task-info { flex: 1; min-width: 0; }
 
@@ -632,11 +620,6 @@
         <input type="text" id="task-input" placeholder="Tên task (vd: Fix bug #142, Review PR...)" autocomplete="off" />
       </div>
       <input type="text" id="estimate-input" inputmode="decimal" placeholder="Giờ (vd: 0.5, 1, 2)" style="width:140px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 14px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none;" />
-      <select id="priority-select">
-        <option value="high">🔴 High</option>
-        <option value="medium" selected>🟡 Medium</option>
-        <option value="low">🔵 Low</option>
-      </select>
       <button class="btn btn-primary" onclick="addTask()">
         ＋ Thêm & Bắt đầu
       </button>
@@ -832,28 +815,26 @@
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
 
-  function priorityLabel(p) {
-    return { high: 'H', medium: 'M', low: 'L' }[p];
-  }
-
-  function priorityClass(p) {
-    return { high: 'priority-high', medium: 'priority-medium', low: 'priority-low' }[p];
-  }
 
   // ── Core Actions ───────────────────────────────────────
   function addTask() {
     const input = document.getElementById('task-input');
-    const name = input.value.trim();
-    if (!name) { input.focus(); return; }
-
-    const priority = document.getElementById('priority-select').value;
     const estimateInput = document.getElementById('estimate-input');
+    const name = input.value.trim();
     const estimateHours = parseFloat(estimateInput.value) || 0;
+    let valid = true;
+
+    input.style.borderColor = '';
+    estimateInput.style.borderColor = '';
+
+    if (!name) { input.style.borderColor = 'var(--danger)'; input.focus(); valid = false; }
+    if (!estimateHours) { estimateInput.style.borderColor = 'var(--danger)'; if (valid) estimateInput.focus(); valid = false; }
+    if (!valid) return;
+
     const estimateMs = estimateHours * 3600000;
     const task = {
       id: uid(),
       name,
-      priority,
       status: 'idle',
       elapsed: 0,
       estimateMs: estimateMs || null,
@@ -988,7 +969,6 @@
             return `<div style="font-size:18px;font-weight:600;color:${color};">${text}</div>`;
           })() : ''}
           <span class="status-pill status-active">ACTIVE</span>
-          <span class="status-pill ${priorityClass(task.priority)}" style="border-radius:20px;padding:3px 10px;font-size:10px;">${task.priority.toUpperCase()}</span>
         </div>
         <div class="active-actions">
           <button class="btn btn-pause" onclick="pauseTask('${task.id}')">⏸ Pause (nhận task mới)</button>
@@ -1015,7 +995,6 @@
         const elapsed = getElapsed(task);
         html += `
         <div class="task-item pending">
-          <div class="task-priority ${priorityClass(task.priority)}">${priorityLabel(task.priority)}</div>
           <div class="task-info">
             <div class="task-name">${escHtml(task.name)}</div>
             <div class="task-time-info">
@@ -1071,7 +1050,6 @@
       const elapsed = task.elapsed || 0;
       html += `
       <div class="task-item done">
-        <div class="task-priority ${priorityClass(task.priority)}">${priorityLabel(task.priority)}</div>
         <div class="task-info">
           <div class="task-name done-text">${escHtml(task.name)}</div>
           <div class="task-time-info">
@@ -1148,6 +1126,18 @@
   // ── Enter key ──────────────────────────────────────────
   document.getElementById('task-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') addTask();
+    else e.target.style.borderColor = '';
+  });
+
+  // ── Estimate input: only allow decimal numbers ────────
+  document.getElementById('estimate-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { addTask(); return; }
+    e.target.style.borderColor = '';
+    const allowed = ['Backspace','Delete','Tab','ArrowLeft','ArrowRight','Home','End'];
+    if (allowed.includes(e.key)) return;
+    if (e.key === '.' && !e.target.value.includes('.')) return;
+    if (e.key >= '0' && e.key <= '9') return;
+    e.preventDefault();
   });
 
   // ── Service Worker ─────────────────────────────────────
