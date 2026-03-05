@@ -914,10 +914,12 @@
     renderDone();
     renderStats();
 
-    // Tick every second if something is active
-    if (activeId) {
+    // Tick every second for active timer and pending "time since"
+    const hasPending = tasks.some(t => t.status === 'pending');
+    if (activeId || hasPending) {
       tickInterval = setInterval(() => {
-        renderActive();
+        if (activeId) renderActive();
+        if (hasPending) tickPendingSince();
         renderStats();
       }, 1000);
     }
@@ -979,7 +981,7 @@
             <div class="task-name">${escHtml(task.name)}</div>
             <div class="task-time-info">
               <span class="time-chip elapsed">⏱ Đã làm: ${fmtShort(elapsed)}</span>
-              <span class="time-chip pending-time">⏳ Pending từ: ${timeSince(task.startedAt || task.createdAt)}</span>
+              <span class="time-chip pending-time" data-pending-since="${task.startedAt || task.createdAt}">⏳ Pending từ: ${timeSince(task.startedAt || task.createdAt)}</span>
             </div>
           </div>
           <div class="task-actions">
@@ -993,6 +995,13 @@
     }
 
     el.innerHTML = html;
+  }
+
+  function tickPendingSince() {
+    document.querySelectorAll('[data-pending-since]').forEach(el => {
+      const ts = Number(el.getAttribute('data-pending-since'));
+      if (ts) el.textContent = '⏳ Pending từ: ' + timeSince(ts);
+    });
   }
 
   function renderDone() {
