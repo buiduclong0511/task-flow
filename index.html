@@ -537,7 +537,7 @@
   }
 
   .sync-status {
-    font-size: 10px;
+    font-size: 13px;
     color: var(--muted);
     display: flex;
     align-items: center;
@@ -556,6 +556,7 @@
 </style>
 </head>
 <body>
+<div id="sync-status" class="sync-status" style="position:fixed;top:12px;right:16px;z-index:10;"></div>
 <div class="container">
 
   <!-- Header -->
@@ -566,9 +567,10 @@
     </div>
     <div style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;">
       <div class="header-meta">
-        <div id="live-clock">--:--:--</div>
-        <div id="today-date" style="color:var(--muted);">--</div>
-        <div id="sync-status" class="sync-status"></div>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div id="live-clock">--:--:--</div>
+          <div id="today-date" style="color:var(--muted);white-space:nowrap;">--</div>
+        </div>
       </div>
       <div id="auth-bar" class="auth-bar"></div>
     </div>
@@ -728,10 +730,16 @@
     }
   }
 
+  let syncHideTimer = null;
   function setSyncStatus(status, text) {
     const el = document.getElementById('sync-status');
     el.className = 'sync-status ' + status;
     el.textContent = text;
+    el.style.display = '';
+    clearTimeout(syncHideTimer);
+    if (status === 'synced') {
+      syncHideTimer = setTimeout(() => { el.style.display = 'none'; }, 5000);
+    }
   }
 
   // ── Firestore Sync ──────────────────────────────────────
@@ -745,10 +753,10 @@
         activeId: activeId || null,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       }, { merge: true });
-      setSyncStatus('synced', 'Đã đồng bộ');
+      setSyncStatus('synced', '✓ Đã đồng bộ');
     } catch (err) {
       console.error('Sync failed:', err);
-      setSyncStatus('error', 'Lỗi đồng bộ');
+      setSyncStatus('error', '✕ Lỗi đồng bộ');
     }
   }
 
@@ -771,11 +779,11 @@
         localStorage.setItem('taskflow_tasks', JSON.stringify(tasks));
         localStorage.setItem('taskflow_active', activeId || '');
         render();
-        setSyncStatus('synced', 'Đã đồng bộ');
+        setSyncStatus('synced', '✓ Đã đồng bộ');
       }
     }, err => {
       console.error('Firestore listen error:', err);
-      setSyncStatus('error', 'Lỗi kết nối');
+      setSyncStatus('error', '✕ Lỗi kết nối');
     });
   }
 
