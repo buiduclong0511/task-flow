@@ -1094,19 +1094,43 @@
     Notification.requestPermission();
   }
 
+  function sendNotification(title, body) {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification(title, { body, icon: 'favicon.png' });
+    }
+  }
+
   function checkDeadlineNotification() {
     const task = activeId ? tasks.find(t => t.id === activeId) : null;
-    if (!task || !task.estimateMs || task.notified20) return;
+    if (!task || !task.estimateMs) return;
     const elapsed = getElapsed(task);
     const remaining = task.estimateMs - elapsed;
-    if (remaining <= task.estimateMs * 0.2 && remaining > 0) {
-      task.notified20 = true;
-      save();
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('TaskFlow — Sắp hết thời gian!', {
-          body: `"${task.name}" chỉ còn ${fmtShort(remaining)}`,
-          icon: 'favicon.png'
-        });
+    if (remaining <= 0) return;
+
+    const pct = remaining / task.estimateMs;
+    const isLargeTask = task.estimateMs > 1800000; // > 0.5h
+
+    if (!task.notifiedAt) task.notifiedAt = {};
+
+    if (isLargeTask) {
+      if (pct <= 0.10 && !task.notifiedAt.p10) {
+        task.notifiedAt.p10 = true;
+        save();
+        sendNotification('TaskFlow — Còn 10% thời gian!', `"${task.name}" chỉ còn ${fmtShort(remaining)}`);
+      } else if (pct <= 0.25 && !task.notifiedAt.p25) {
+        task.notifiedAt.p25 = true;
+        save();
+        sendNotification('TaskFlow — Còn 25% thời gian!', `"${task.name}" chỉ còn ${fmtShort(remaining)}`);
+      } else if (pct <= 0.50 && !task.notifiedAt.p50) {
+        task.notifiedAt.p50 = true;
+        save();
+        sendNotification('TaskFlow — Còn 50% thời gian', `"${task.name}" chỉ còn ${fmtShort(remaining)}`);
+      }
+    } else {
+      if (pct <= 0.20 && !task.notifiedAt.p20) {
+        task.notifiedAt.p20 = true;
+        save();
+        sendNotification('TaskFlow — Sắp hết thời gian!', `"${task.name}" chỉ còn ${fmtShort(remaining)}`);
       }
     }
   }
