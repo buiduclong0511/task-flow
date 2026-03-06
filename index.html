@@ -37,17 +37,19 @@
     overflow-x: hidden;
   }
 
-  /* Grid background */
-  body::before {
-    content: '';
+  /* Cosmic starfield background */
+  #starfield {
     position: fixed;
     inset: 0;
-    background-image:
-      linear-gradient(rgba(232,255,71,0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(232,255,71,0.03) 1px, transparent 1px);
-    background-size: 40px 40px;
     pointer-events: none;
     z-index: 0;
+    overflow: hidden;
+  }
+
+  #star-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
   }
 
   .container {
@@ -558,13 +560,14 @@
 </style>
 </head>
 <body>
+<div id="starfield"><canvas id="star-canvas"></canvas></div>
 <div id="sync-status" class="sync-status" style="position:fixed;top:12px;right:16px;z-index:10;"></div>
 <div class="container">
 
   <!-- Header -->
   <div class="header">
     <div>
-      <div class="logo">Task<span>Flow</span> <span style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;font-weight:400;">v1.1.3</span></div>
+      <div class="logo">Task<span>Flow</span> <span style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;font-weight:400;">v1.2.0</span></div>
       <div style="font-size:11px;color:var(--muted);margin-top:4px;">Time tracking for interrupted workflows</div>
     </div>
     <div style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;">
@@ -1212,6 +1215,97 @@
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js');
   }
+
+  // ── Starfield ────────────────────────────────────────────
+  (function() {
+    const canvas = document.getElementById('star-canvas');
+    const ctx = canvas.getContext('2d');
+    let w, h, stars;
+
+    const STAR_COUNT = 120;
+    const SPEED = 0.4;
+    const colors = [
+      [232, 255, 71],   // accent yellow
+      [71, 200, 255],   // accent blue
+      [255, 255, 255],  // white
+    ];
+
+    function resize() {
+      w = canvas.width = window.innerWidth;
+      h = canvas.height = window.innerHeight;
+    }
+
+    function createStars() {
+      stars = [];
+      for (let i = 0; i < STAR_COUNT; i++) {
+        stars.push({
+          x: Math.random() * w - w / 2,
+          y: Math.random() * h - h / 2,
+          z: Math.random() * 1000,
+          color: colors[Math.floor(Math.random() * colors.length)],
+        });
+      }
+    }
+
+    function draw() {
+      ctx.fillStyle = 'rgba(13, 13, 15, 0.25)';
+      ctx.fillRect(0, 0, w, h);
+
+      const cx = w / 2;
+      const cy = h / 2;
+
+      for (const star of stars) {
+        star.z -= SPEED;
+        if (star.z <= 0.5) {
+          star.x = Math.random() * w - w / 2;
+          star.y = Math.random() * h - h / 2;
+          star.z = 1000;
+        }
+
+        const sx = (star.x / star.z) * 300 + cx;
+        const sy = (star.y / star.z) * 300 + cy;
+
+        if (sx < -10 || sx > w + 10 || sy < -10 || sy > h + 10) {
+          star.x = Math.random() * w - w / 2;
+          star.y = Math.random() * h - h / 2;
+          star.z = 1000;
+          continue;
+        }
+
+        const depth = 1 - star.z / 1000;
+        const size = depth * 3.5 + 0.5;
+        const alpha = depth * 0.7 + 0.1;
+        const [r, g, b] = star.color;
+
+        // Outer glow
+        const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, size * 4);
+        glow.addColorStop(0, `rgba(${r},${g},${b},${alpha * 0.6})`);
+        glow.addColorStop(0.15, `rgba(${r},${g},${b},${alpha * 0.3})`);
+        glow.addColorStop(0.5, `rgba(${r},${g},${b},${alpha * 0.08})`);
+        glow.addColorStop(1, `rgba(${r},${g},${b},0)`);
+        ctx.beginPath();
+        ctx.arc(sx, sy, size * 4, 0, Math.PI * 2);
+        ctx.fillStyle = glow;
+        ctx.fill();
+
+        // Core
+        ctx.beginPath();
+        ctx.arc(sx, sy, size * 0.6, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${r},${g},${b},${Math.min(alpha + 0.3, 1)})`;
+        ctx.fill();
+      }
+
+      requestAnimationFrame(draw);
+    }
+
+    window.addEventListener('resize', () => { resize(); createStars(); });
+    resize();
+    createStars();
+    // Clear canvas first
+    ctx.fillStyle = '#0d0d0f';
+    ctx.fillRect(0, 0, w, h);
+    draw();
+  })();
 
   // ── Init ───────────────────────────────────────────────
   // render() is called by auth.onAuthStateChanged
