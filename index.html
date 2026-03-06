@@ -564,7 +564,7 @@
   <!-- Header -->
   <div class="header">
     <div>
-      <div class="logo">Task<span>Flow</span> <span style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;font-weight:400;">v1.1.2</span></div>
+      <div class="logo">Task<span>Flow</span> <span style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;font-weight:400;">v1.1.3</span></div>
       <div style="font-size:11px;color:var(--muted);margin-top:4px;">Time tracking for interrupted workflows</div>
     </div>
     <div style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;">
@@ -695,11 +695,12 @@
   }
 
   function save() {
-    // Local cache
+    hasUserInteracted = true;
+    // Local cache (luôn lưu ngay)
     localStorage.setItem('taskflow_tasks', JSON.stringify(tasks));
     localStorage.setItem('taskflow_active', activeId || '');
-    // Sync to Firestore
-    if (currentUser) syncToFirestore();
+    // Debounce sync to Firestore (2s)
+    if (currentUser && !isSyncingFromRemote) debouncedSync();
   }
 
   // ── Auth ─────────────────────────────────────────────────
@@ -729,7 +730,13 @@
   }
 
   let syncHideTimer = null;
+  let syncDebounceTimer = null;
+  let localDataHash = '';
+  let isSyncingFromRemote = false;
+  let hasUserInteracted = false;
+
   function setSyncStatus(status, text) {
+    if (!hasUserInteracted) return;
     const el = document.getElementById('sync-status');
     el.className = 'sync-status ' + status;
     el.textContent = text;
@@ -740,9 +747,17 @@
     }
   }
 
+  function computeDataHash() {
+    return JSON.stringify({ tasks, activeId: activeId || null });
+  }
+
   // ── Firestore Sync ──────────────────────────────────────
   async function syncToFirestore() {
     if (!currentUser) return;
+    const hash = computeDataHash();
+    if (hash === localDataHash) return; // Không thay đổi → bỏ qua
+    localDataHash = hash;
+
     setSyncStatus('syncing', 'Đang đồng bộ...');
     try {
       const docRef = db.collection('users').doc(currentUser.uid);
@@ -753,9 +768,25 @@
       }, { merge: true });
       setSyncStatus('synced', '✓ Đã đồng bộ');
     } catch (err) {
+      localDataHash = ''; // Reset để retry lần sau
       console.error('Sync failed:', err);
       setSyncStatus('error', '✕ Lỗi đồng bộ');
     }
+  }
+
+  function debouncedSync() {
+    if (!currentUser) return;
+    clearTimeout(syncDebounceTimer);
+    syncDebounceTimer = setTimeout(syncToFirestore, 2000);
+  }
+
+  function flushSync() {
+    if (syncDebounceTimer) {
+      clearTimeout(syncDebounceTimer);
+      syncDebounceTimer = null;
+      return syncToFirestore();
+    }
+    return Promise.resolve();
   }
 
   function listenFirestore() {
@@ -763,22 +794,36 @@
     if (!currentUser) return;
 
     const docRef = db.collection('users').doc(currentUser.uid);
-    unsubFirestore = docRef.onSnapshot(snap => {
+    unsubFirestore = docRef.onSnapshot(async snap => {
       if (!snap.exists) {
-        // First time user — push local data up
         syncToFirestore();
         return;
       }
       const data = snap.data();
-      if (data.tasks) {
-        tasks = data.tasks;
-        activeId = data.activeId || null;
-        // Update local cache
-        localStorage.setItem('taskflow_tasks', JSON.stringify(tasks));
-        localStorage.setItem('taskflow_active', activeId || '');
-        render();
+      if (!data.tasks) return;
+
+      const remoteHash = JSON.stringify({ tasks: data.tasks, activeId: data.activeId || null });
+      if (remoteHash === localDataHash) {
         setSyncStatus('synced', '✓ Đã đồng bộ');
+        return;
       }
+
+      // Nếu đang có thay đổi local chưa sync → flush lên trước
+      if (syncDebounceTimer) {
+        await flushSync();
+        // Sau khi flush, snapshot mới sẽ fire lại → xử lý ở lần sau
+        return;
+      }
+
+      isSyncingFromRemote = true;
+      tasks = data.tasks;
+      activeId = data.activeId || null;
+      localDataHash = computeDataHash();
+      localStorage.setItem('taskflow_tasks', JSON.stringify(tasks));
+      localStorage.setItem('taskflow_active', activeId || '');
+      render();
+      setSyncStatus('synced', '✓ Đã đồng bộ');
+      isSyncingFromRemote = false;
     }, err => {
       console.error('Firestore listen error:', err);
       setSyncStatus('error', '✕ Lỗi kết nối');
