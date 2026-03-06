@@ -1,7 +1,5 @@
-const CACHE_NAME = 'taskflow-v1';
+const CACHE_NAME = 'taskflow-v1.1.1';
 const ASSETS = [
-  '/',
-  '/index.html',
   '/favicon.png',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
@@ -25,12 +23,27 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  // Network first for Firebase APIs, cache first for static assets
-  if (e.request.url.includes('firebaseio') || e.request.url.includes('googleapis.com/identitytoolkit')) {
-    e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
-  } else {
+  const url = new URL(e.request.url);
+
+  // Network first for HTML pages and Firebase APIs
+  if (e.request.mode === 'navigate'
+    || url.pathname.endsWith('.html')
+    || e.request.url.includes('firebaseio')
+    || e.request.url.includes('googleapis.com/identitytoolkit')) {
     e.respondWith(
-      caches.match(e.request).then(cached => cached || fetch(e.request))
+      fetch(e.request)
+        .then(res => {
+          const clone = res.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
+          return res;
+        })
+        .catch(() => caches.match(e.request))
     );
+    return;
   }
+
+  // Cache first for static assets (images, fonts)
+  e.respondWith(
+    caches.match(e.request).then(cached => cached || fetch(e.request))
+  );
 });
