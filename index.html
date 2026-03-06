@@ -567,7 +567,7 @@
   <!-- Header -->
   <div class="header">
     <div>
-      <div class="logo">Task<span>Flow</span> <span style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;font-weight:400;">v1.2.1</span></div>
+      <div class="logo">Task<span>Flow</span> <span style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;font-weight:400;">v1.2.2</span></div>
       <div style="font-size:11px;color:var(--muted);margin-top:4px;">Time tracking for interrupted workflows</div>
     </div>
     <div style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;">
@@ -1013,7 +1013,9 @@
             const remaining = task.estimateMs - elapsed;
             const color = remaining <= 0 ? 'var(--danger)' : remaining <= task.estimateMs * 0.2 ? 'var(--warn)' : 'var(--success)';
             const text = remaining > 0 ? '⏳ Còn: ' + fmtShort(remaining) : '⚠ Quá hạn: ' + fmtShort(Math.abs(remaining));
-            return `<div style="font-size:18px;font-weight:600;color:${color};">${text}</div>`;
+            const estHours = (task.estimateMs / 3600000).toFixed(1);
+            return `<div style="font-size:14px;color:var(--muted);">Estimate: ${estHours}h</div>
+              <div style="font-size:18px;font-weight:600;color:${color};">${text}</div>`;
           })() : ''}
           <span class="status-pill status-active">ACTIVE</span>
         </div>
@@ -1206,7 +1208,11 @@
     e.target.style.borderColor = '';
     const allowed = ['Backspace','Delete','Tab','ArrowLeft','ArrowRight','Home','End'];
     if (allowed.includes(e.key)) return;
-    if (e.key === '.' && !e.target.value.includes('.')) return;
+    if ((e.key === '.' || e.key === ',') && !e.target.value.includes('.') && !e.target.value.includes(',')) {
+      e.preventDefault();
+      e.target.setRangeText('.', e.target.selectionStart, e.target.selectionEnd, 'end');
+      return;
+    }
     if (e.key >= '0' && e.key <= '9') return;
     e.preventDefault();
   });
