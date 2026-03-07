@@ -674,6 +674,14 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
+// ── Cmd/Ctrl+N: focus task input ───────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'N' && e.shiftKey && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) {
+    e.preventDefault();
+    document.getElementById('task-input').focus();
+  }
+});
+
 // ── Enter key ──────────────────────────────────────────
 document.getElementById('task-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') addTask();
