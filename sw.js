@@ -1,4 +1,4 @@
-const CACHE_NAME = 'taskflow-v1.2.2';
+const CACHE_NAME = 'taskflow-v1.3.0';
 const ASSETS = [
   '/favicon.png',
   '/icons/icon-192.png',

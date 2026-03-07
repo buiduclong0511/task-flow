@@ -567,7 +567,7 @@
   <!-- Header -->
   <div class="header">
     <div>
-      <div class="logo">Task<span>Flow</span> <span style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;font-weight:400;">v1.2.2</span></div>
+      <div class="logo">Task<span>Flow</span> <span style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;font-weight:400;">v1.3.0</span></div>
       <div style="font-size:11px;color:var(--muted);margin-top:4px;">Time tracking for interrupted workflows</div>
     </div>
     <div style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;">
@@ -664,11 +664,18 @@
   const googleProvider = new firebase.auth.GoogleAuthProvider();
 
   // ── State ──────────────────────────────────────────────
-  let tasks = [];
+  let tasks = [];       // active + pending + idle only
+  let doneTasks = [];   // done tasks (current page from Firestore)
+  let doneTotalCount = 0;
   let activeId = null;
   let tickInterval = null;
   let currentUser = null;
   let unsubFirestore = null;
+  let doneLastDoc = null;
+  let doneFirstDoc = null;
+  let donePageStack = []; // stack of firstDoc for previous pages
+  let donePage = 0;
+  const DONE_PAGE_SIZE = 10;
 
   // ── Helpers ────────────────────────────────────────────
   function fmtTime(ms) {
@@ -699,11 +706,13 @@
 
   function save() {
     hasUserInteracted = true;
-    // Local cache (luôn lưu ngay)
+    // Local cache
     localStorage.setItem('taskflow_tasks', JSON.stringify(tasks));
     localStorage.setItem('taskflow_active', activeId || '');
-    // Debounce sync to Firestore (2s)
-    if (currentUser && !isSyncingFromRemote) debouncedSync();
+  }
+
+  function tasksRef() {
+    return db.collection('users').doc(currentUser.uid).collection('tasks');
   }
 
   // ── Auth ─────────────────────────────────────────────────
@@ -733,9 +742,6 @@
   }
 
   let syncHideTimer = null;
-  let syncDebounceTimer = null;
-  let localDataHash = '';
-  let isSyncingFromRemote = false;
   let hasUserInteracted = false;
 
   function setSyncStatus(status, text) {
@@ -750,103 +756,180 @@
     }
   }
 
-  function computeDataHash() {
-    return JSON.stringify({ tasks, activeId: activeId || null });
-  }
-
-  // ── Firestore Sync ──────────────────────────────────────
-  async function syncToFirestore() {
+  // ── Firestore Sync (subcollection) ────────────────────
+  async function saveTask(task) {
     if (!currentUser) return;
-    const hash = computeDataHash();
-    if (hash === localDataHash) return; // Không thay đổi → bỏ qua
-    localDataHash = hash;
-
+    hasUserInteracted = true;
     setSyncStatus('syncing', 'Đang đồng bộ...');
     try {
-      const docRef = db.collection('users').doc(currentUser.uid);
-      await docRef.set({
-        tasks: JSON.parse(JSON.stringify(tasks)),
-        activeId: activeId || null,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
+      await tasksRef().doc(task.id).set(JSON.parse(JSON.stringify(task)));
       setSyncStatus('synced', '✓ Đã đồng bộ');
     } catch (err) {
-      localDataHash = ''; // Reset để retry lần sau
-      console.error('Sync failed:', err);
+      console.error('Save task failed:', err);
       setSyncStatus('error', '✕ Lỗi đồng bộ');
     }
   }
 
-  function debouncedSync() {
+  async function deleteTaskFromFirestore(id) {
     if (!currentUser) return;
-    clearTimeout(syncDebounceTimer);
-    syncDebounceTimer = setTimeout(syncToFirestore, 2000);
+    setSyncStatus('syncing', 'Đang đồng bộ...');
+    try {
+      await tasksRef().doc(id).delete();
+      setSyncStatus('synced', '✓ Đã đồng bộ');
+    } catch (err) {
+      console.error('Delete task failed:', err);
+      setSyncStatus('error', '✕ Lỗi đồng bộ');
+    }
   }
 
-  function flushSync() {
-    if (syncDebounceTimer) {
-      clearTimeout(syncDebounceTimer);
-      syncDebounceTimer = null;
-      return syncToFirestore();
+  async function fetchDoneTasks(direction) {
+    if (!currentUser) return;
+    let query = tasksRef()
+      .where('status', '==', 'done')
+      .orderBy('completedAt', 'desc')
+      .limit(DONE_PAGE_SIZE);
+
+    if (direction === 'next' && doneLastDoc) {
+      query = query.startAfter(doneLastDoc);
+    } else if (direction === 'prev' && donePageStack.length > 0) {
+      const startAt = donePageStack.pop();
+      query = tasksRef()
+        .where('status', '==', 'done')
+        .orderBy('completedAt', 'desc')
+        .startAt(startAt)
+        .limit(DONE_PAGE_SIZE);
     }
-    return Promise.resolve();
+
+    try {
+      const snap = await query.get();
+      if (snap.empty && direction === 'next') return; // Không còn data
+
+      if (direction === 'next' && doneFirstDoc) {
+        donePageStack.push(doneFirstDoc);
+      }
+
+      doneTasks = snap.docs.map(d => d.data());
+      doneFirstDoc = snap.docs[0] || null;
+      doneLastDoc = snap.docs[snap.docs.length - 1] || null;
+
+      if (direction === 'next') donePage++;
+      else if (direction === 'prev' && donePage > 0) donePage--;
+
+      renderDone();
+    } catch (err) {
+      console.error('Fetch done tasks failed:', err);
+    }
+  }
+
+  async function fetchDoneCount() {
+    if (!currentUser) return;
+    try {
+      const snap = await tasksRef().where('status', '==', 'done').get();
+      doneTotalCount = snap.size;
+    } catch (err) {
+      console.error('Count done tasks failed:', err);
+    }
+  }
+
+  async function searchDoneTasks(keyword) {
+    if (!currentUser) return;
+    if (!keyword) {
+      donePage = 0;
+      donePageStack = [];
+      doneFirstDoc = null;
+      doneLastDoc = null;
+      await fetchDoneCount();
+      await fetchDoneTasks('first');
+      return;
+    }
+    // Firestore không hỗ trợ full-text search → fetch all done và filter client-side
+    try {
+      const snap = await tasksRef()
+        .where('status', '==', 'done')
+        .orderBy('completedAt', 'desc')
+        .get();
+      const all = snap.docs.map(d => d.data());
+      const kw = keyword.toLowerCase();
+      doneTasks = all.filter(t => t.name.toLowerCase().includes(kw));
+      doneTotalCount = doneTasks.length;
+      donePage = 0;
+      donePageStack = [];
+      doneFirstDoc = null;
+      doneLastDoc = null;
+      renderDone(true); // isSearchResult = true
+    } catch (err) {
+      console.error('Search done tasks failed:', err);
+    }
   }
 
   function listenFirestore() {
     if (unsubFirestore) unsubFirestore();
     if (!currentUser) return;
 
-    const docRef = db.collection('users').doc(currentUser.uid);
-    unsubFirestore = docRef.onSnapshot(async snap => {
-      if (!snap.exists) {
-        syncToFirestore();
-        return;
-      }
-      const data = snap.data();
-      if (!data.tasks) return;
+    // Listen active + pending + idle tasks realtime
+    unsubFirestore = tasksRef()
+      .where('status', 'in', ['active', 'pending', 'idle'])
+      .onSnapshot(snap => {
+        tasks = snap.docs.map(d => d.data());
+        activeId = null;
+        const activeTask = tasks.find(t => t.status === 'active');
+        if (activeTask) activeId = activeTask.id;
+        // Update local cache
+        localStorage.setItem('taskflow_tasks', JSON.stringify(tasks));
+        localStorage.setItem('taskflow_active', activeId || '');
+        renderActive();
+        renderPending();
+        renderStats();
+      }, err => {
+        console.error('Firestore listen error:', err);
+        setSyncStatus('error', '✕ Lỗi kết nối');
+      });
+  }
 
-      const remoteHash = JSON.stringify({ tasks: data.tasks, activeId: data.activeId || null });
-      if (remoteHash === localDataHash) {
-        setSyncStatus('synced', '✓ Đã đồng bộ');
-        return;
-      }
+  // ── Migration: old format → subcollection ─────────────
+  async function migrateIfNeeded() {
+    if (!currentUser) return;
+    const userDoc = await db.collection('users').doc(currentUser.uid).get();
+    if (!userDoc.exists) return;
+    const data = userDoc.data();
+    if (!data.tasks || !Array.isArray(data.tasks) || data.tasks.length === 0) return;
 
-      // Nếu đang có thay đổi local chưa sync → flush lên trước
-      if (syncDebounceTimer) {
-        await flushSync();
-        // Sau khi flush, snapshot mới sẽ fire lại → xử lý ở lần sau
-        return;
-      }
-
-      isSyncingFromRemote = true;
-      tasks = data.tasks;
-      activeId = data.activeId || null;
-      localDataHash = computeDataHash();
-      localStorage.setItem('taskflow_tasks', JSON.stringify(tasks));
-      localStorage.setItem('taskflow_active', activeId || '');
-      render();
-      setSyncStatus('synced', '✓ Đã đồng bộ');
-      isSyncingFromRemote = false;
-    }, err => {
-      console.error('Firestore listen error:', err);
-      setSyncStatus('error', '✕ Lỗi kết nối');
+    setSyncStatus('syncing', 'Đang di chuyển dữ liệu...');
+    const batch = db.batch();
+    for (const task of data.tasks) {
+      batch.set(tasksRef().doc(task.id), task);
+    }
+    // Xóa mảng tasks cũ
+    batch.update(db.collection('users').doc(currentUser.uid), {
+      tasks: firebase.firestore.FieldValue.delete(),
+      activeId: firebase.firestore.FieldValue.delete(),
+      migrated: true,
     });
+    await batch.commit();
+    setSyncStatus('synced', '✓ Đã di chuyển dữ liệu');
   }
 
   // ── Auth State Listener ─────────────────────────────────
-  auth.onAuthStateChanged(user => {
+  auth.onAuthStateChanged(async user => {
     currentUser = user;
     renderAuthBar();
 
     if (user) {
       document.getElementById('auth-wall').style.display = 'none';
       document.getElementById('app-content').style.display = 'block';
-      // Load from local cache first for instant display
+      // Load local cache for instant display
       tasks = JSON.parse(localStorage.getItem('taskflow_tasks') || '[]');
       activeId = localStorage.getItem('taskflow_active') || null;
-      render();
-      // Then listen to Firestore for real-time sync
+      renderActive();
+      renderPending();
+      renderStats();
+      // Migrate old format if needed
+      await migrateIfNeeded();
+      // Listen active/pending realtime
       listenFirestore();
+      // Fetch done tasks (first page)
+      await fetchDoneCount();
+      await fetchDoneTasks('first');
     } else {
       document.getElementById('auth-wall').style.display = 'block';
       document.getElementById('app-content').style.display = 'none';
@@ -855,6 +938,7 @@
         unsubFirestore = null;
       }
       tasks = [];
+      doneTasks = [];
       activeId = null;
     }
   });
@@ -886,12 +970,12 @@
       elapsed: 0,
       estimateMs: estimateMs || null,
       notified20: false,
+      notifiedAt: {},
       startedAt: null,
       createdAt: Date.now(),
       completedAt: null,
     };
 
-    tasks.unshift(task);
     input.value = '';
     estimateInput.value = '';
 
@@ -900,11 +984,11 @@
       pauseTask(activeId, false);
     }
 
+    tasks.unshift(task);
     startTask(task.id);
   }
 
   function startTask(id) {
-    // Pause current active if any
     if (activeId && activeId !== id) {
       pauseTask(activeId, false);
     }
@@ -915,7 +999,10 @@
     task.startedAt = Date.now();
     activeId = id;
     save();
-    render();
+    saveTask(task);
+    renderActive();
+    renderPending();
+    renderStats();
   }
 
   function pauseTask(id, doRender = true) {
@@ -926,10 +1013,11 @@
     task.status = 'pending';
     if (activeId === id) activeId = null;
     save();
-    if (doRender) render();
+    saveTask(task);
+    if (doRender) { renderActive(); renderPending(); renderStats(); }
   }
 
-  function doneTask(id) {
+  async function doneTask(id) {
     const task = tasks.find(t => t.id === id);
     if (!task) return;
     if (task.status === 'active') {
@@ -939,15 +1027,35 @@
     task.status = 'done';
     task.completedAt = Date.now();
     if (activeId === id) activeId = null;
-    save();
-    render();
-  }
-
-  function deleteTask(id) {
-    if (activeId === id) activeId = null;
     tasks = tasks.filter(t => t.id !== id);
     save();
-    render();
+    await saveTask(task);
+    renderActive();
+    renderPending();
+    renderStats();
+    // Refresh done list
+    await fetchDoneCount();
+    await fetchDoneTasks('first');
+    donePage = 0;
+    donePageStack = [];
+  }
+
+  async function deleteTask(id) {
+    if (activeId === id) activeId = null;
+    const wasDone = !tasks.find(t => t.id === id);
+    tasks = tasks.filter(t => t.id !== id);
+    save();
+    await deleteTaskFromFirestore(id);
+    if (wasDone) {
+      await fetchDoneCount();
+      await fetchDoneTasks('first');
+      donePage = 0;
+      donePageStack = [];
+    } else {
+      renderActive();
+      renderPending();
+      renderStats();
+    }
   }
 
   function resumeTask(id) {
@@ -960,19 +1068,15 @@
     task.startedAt = Date.now();
     activeId = id;
     save();
-    render();
+    saveTask(task);
+    renderActive();
+    renderPending();
+    renderStats();
   }
 
   // ── Render ─────────────────────────────────────────────
-  function render() {
+  function startTick() {
     clearInterval(tickInterval);
-
-    renderActive();
-    renderPending();
-    renderDone();
-    renderStats();
-
-    // Tick every second for active timer and pending "time since"
     const hasPending = tasks.some(t => t.status === 'pending');
     if (activeId || hasPending) {
       tickInterval = setInterval(() => {
@@ -987,6 +1091,7 @@
   }
 
   function renderActive() {
+    startTick();
     const el = document.getElementById('active-section');
     const task = activeId ? tasks.find(t => t.id === activeId) : null;
 
@@ -1082,50 +1187,86 @@
     });
   }
 
-  function renderDone() {
-    const el = document.getElementById('done-section');
-    const done = tasks.filter(t => t.status === 'done').slice(0, 10);
+  let doneSearchQuery = '';
+  let doneSearchTimer = null;
 
-    if (done.length === 0) { el.innerHTML = ''; return; }
+  function renderDone(isSearchResult) {
+    const el = document.getElementById('done-section');
+
+    if (doneTotalCount === 0 && !doneSearchQuery) { el.innerHTML = ''; return; }
+
+    const totalPages = isSearchResult ? 1 : Math.ceil(doneTotalCount / DONE_PAGE_SIZE);
+    const showingCount = doneTasks.length;
 
     let html = `<div class="divider"></div>
     <div class="section-header">
-      <span class="section-title">// Hoàn thành hôm nay</span>
-      <span class="badge">${done.length}</span>
+      <span class="section-title">// Hoàn thành</span>
+      <span class="badge">${doneTotalCount}</span>
+    </div>
+    <div style="margin-bottom:12px;">
+      <input type="text" id="done-search" placeholder="Tìm task đã hoàn thành..." value="${escHtml(doneSearchQuery)}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 14px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none;" />
     </div>
     <div class="task-list">`;
 
-    done.forEach(task => {
-      const elapsed = task.elapsed || 0;
-      html += `
-      <div class="task-item done">
-        <div class="task-info">
-          <div class="task-name done-text">${escHtml(task.name)}</div>
-          <div class="task-time-info">
-            <span class="time-chip">Total: ${fmtShort(elapsed)} (${(elapsed / 3600000).toFixed(2)}h)</span>
-              ${estimateChip(task)}
+    if (showingCount === 0) {
+      html += `<div class="empty-state">Không tìm thấy task nào</div>`;
+    } else {
+      doneTasks.forEach(task => {
+        const elapsed = task.elapsed || 0;
+        html += `
+        <div class="task-item done">
+          <div class="task-info">
+            <div class="task-name done-text">${escHtml(task.name)}</div>
+            <div class="task-time-info">
+              <span class="time-chip">Total: ${fmtShort(elapsed)} (${(elapsed / 3600000).toFixed(2)}h)</span>
+                ${estimateChip(task)}
+            </div>
           </div>
-        </div>
-        <div class="task-actions">
-          <button class="btn btn-danger btn-sm" onclick="deleteTask('${task.id}')">✕</button>
-        </div>
-      </div>`;
-    });
+          <div class="task-actions">
+            <button class="btn btn-danger btn-sm" onclick="deleteTask('${task.id}')">✕</button>
+          </div>
+        </div>`;
+      });
+    }
     html += `</div>`;
+
+    // Pagination (không hiện khi đang search hoặc chỉ có 1 trang)
+    if (!isSearchResult && !doneSearchQuery && totalPages > 1) {
+      html += `<div style="display:flex;justify-content:center;align-items:center;gap:12px;margin-top:14px;">
+        <button class="btn btn-ghost btn-sm" onclick="goPageDone('prev')" ${donePage === 0 ? 'disabled style="opacity:0.3;pointer-events:none;"' : ''}>← Trước</button>
+        <span style="font-size:12px;color:var(--muted);">Trang ${donePage + 1} / ${totalPages}</span>
+        <button class="btn btn-ghost btn-sm" onclick="goPageDone('next')" ${donePage >= totalPages - 1 ? 'disabled style="opacity:0.3;pointer-events:none;"' : ''}>Sau →</button>
+      </div>`;
+    }
+
     el.innerHTML = html;
+
+    const searchInput = document.getElementById('done-search');
+    if (searchInput) {
+      searchInput.addEventListener('input', e => {
+        doneSearchQuery = e.target.value;
+        clearTimeout(doneSearchTimer);
+        doneSearchTimer = setTimeout(() => {
+          searchDoneTasks(doneSearchQuery);
+        }, 500);
+      });
+    }
+  }
+
+  function goPageDone(direction) {
+    fetchDoneTasks(direction);
   }
 
   function renderStats() {
     const active = tasks.find(t => t.status === 'active');
     const pending = tasks.filter(t => t.status === 'pending');
-    const done = tasks.filter(t => t.status === 'done');
 
     const totalMs = tasks.reduce((s, t) => s + getElapsed(t), 0);
 
     document.getElementById('stat-total').textContent = fmtTime(totalMs);
     document.getElementById('stat-active').textContent = active ? fmtTime(getElapsed(active)) : '—';
     document.getElementById('stat-pending').textContent = pending.length;
-    document.getElementById('stat-done').textContent = done.length;
+    document.getElementById('stat-done').textContent = doneTotalCount;
   }
 
   function timeSince(ts) {
