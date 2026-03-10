@@ -27,8 +27,18 @@ let doneFirstDoc = null;
 let donePageStack = []; // stack of firstDoc for previous pages
 let donePage = 0;
 const DONE_PAGE_SIZE = 10;
+let doneFilterToday = true;
 
 // ── Helpers ────────────────────────────────────────────
+function isToday(timestamp) {
+  if (!timestamp) return false;
+  const d = new Date(timestamp);
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear()
+    && d.getMonth() === now.getMonth()
+    && d.getDate() === now.getDate();
+}
+
 function fmtTime(ms) {
   if (ms < 0) ms = 0;
   const s = Math.floor(ms / 1000);
@@ -143,10 +153,17 @@ async function fetchAllDone() {
     allDoneCache = snap.docs.map(d => d.data());
     // Sort by completedAt desc client-side
     allDoneCache.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
-    doneTotalCount = allDoneCache.length;
+    doneTotalCount = getFilteredDoneCache().length;
   } catch (err) {
     console.error('Fetch done tasks failed:', err);
   }
+}
+
+function getFilteredDoneCache() {
+  if (doneFilterToday) {
+    return allDoneCache.filter(t => isToday(t.completedAt));
+  }
+  return allDoneCache;
 }
 
 function paginateDone(direction) {
@@ -154,8 +171,10 @@ function paginateDone(direction) {
   else if (direction === 'prev' && donePage > 0) donePage--;
   else donePage = 0;
 
+  const filtered = getFilteredDoneCache();
+  doneTotalCount = filtered.length;
   const start = donePage * DONE_PAGE_SIZE;
-  doneTasks = allDoneCache.slice(start, start + DONE_PAGE_SIZE);
+  doneTasks = filtered.slice(start, start + DONE_PAGE_SIZE);
   renderDone();
 }
 
@@ -184,7 +203,8 @@ async function searchDoneTasks(keyword) {
   const kw = keyword.toLowerCase();
   // Nếu cache rỗng, fetch trước
   if (allDoneCache.length === 0) await fetchAllDone();
-  doneTasks = allDoneCache.filter(t => t.name.toLowerCase().includes(kw));
+  const base = getFilteredDoneCache();
+  doneTasks = base.filter(t => t.name.toLowerCase().includes(kw));
   doneTotalCount = doneTasks.length;
   donePage = 0;
   renderDone(true);
@@ -520,7 +540,7 @@ let doneSearchTimer = null;
 function renderDone(isSearchResult) {
   const el = document.getElementById('done-section');
 
-  if (doneTotalCount === 0 && !doneSearchQuery) { el.innerHTML = ''; return; }
+  if (allDoneCache.length === 0 && !doneSearchQuery) { el.innerHTML = ''; return; }
 
   const totalPages = isSearchResult ? 1 : Math.ceil(doneTotalCount / DONE_PAGE_SIZE);
   const showingCount = doneTasks.length;
@@ -530,8 +550,12 @@ function renderDone(isSearchResult) {
     <span class="section-title">// Hoàn thành</span>
     <span class="badge">${doneTotalCount}</span>
   </div>
-  <div style="margin-bottom:12px;">
-    <input type="text" id="done-search" placeholder="Tìm task đã hoàn thành..." value="${escHtml(doneSearchQuery)}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 14px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none;" />
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap;">
+      <input type="checkbox" id="done-filter-today" ${doneFilterToday ? 'checked' : ''} />
+      Hôm nay
+    </label>
+    <input type="text" id="done-search" placeholder="Tìm task đã hoàn thành..." value="${escHtml(doneSearchQuery)}" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 14px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none;" />
   </div>
   <div class="task-list">`;
 
@@ -588,6 +612,23 @@ function renderDone(isSearchResult) {
       if (cursorPos !== null) searchInput.setSelectionRange(cursorPos, cursorPos);
     }
   }
+
+  const filterCheckbox = document.getElementById('done-filter-today');
+  if (filterCheckbox) {
+    filterCheckbox.addEventListener('change', e => {
+      doneFilterToday = e.target.checked;
+      donePage = 0;
+      paginateDone(null);
+      renderStats();
+    });
+  }
+}
+
+function toggleDoneFilterToday() {
+  doneFilterToday = !doneFilterToday;
+  donePage = 0;
+  paginateDone(null);
+  renderStats();
 }
 
 function goPageDone(direction) {
@@ -598,7 +639,11 @@ function renderStats() {
   const active = tasks.find(t => t.status === 'active');
   const pending = tasks.filter(t => t.status === 'pending');
 
-  const totalMs = tasks.reduce((s, t) => s + getElapsed(t), 0);
+  const activeTotalMs = tasks.reduce((s, t) => s + getElapsed(t), 0);
+  const doneTodayMs = allDoneCache
+    .filter(t => isToday(t.completedAt))
+    .reduce((s, t) => s + (t.elapsed || 0), 0);
+  const totalMs = activeTotalMs + doneTodayMs;
 
   document.getElementById('stat-total').textContent = fmtTime(totalMs);
   document.getElementById('stat-active').textContent = active ? fmtTime(getElapsed(active)) : '—';
