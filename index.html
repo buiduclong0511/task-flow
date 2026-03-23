@@ -1,219 +1,110 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="vi">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>TaskFlow — Time Tracker</title>
-        <link rel="icon" type="image/png" href="favicon.png" />
-        <link rel="manifest" href="manifest.json" />
-        <meta name="theme-color" content="#0d0d0f" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta
-            name="apple-mobile-web-app-status-bar-style"
-            content="black-translucent"
-        />
-        <link rel="apple-touch-icon" href="icons/icon-192.png" />
-        <link
-            href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Syne:wght@400;600;700;800&display=swap"
-            rel="stylesheet"
-        />
-        <link rel="stylesheet" href="style.css" />
-    </head>
-    <body>
-        <div id="starfield"><canvas id="star-canvas"></canvas></div>
-        <div
-            id="sync-status"
-            class="sync-status"
-            style="position: fixed; top: 12px; right: 16px; z-index: 10"
-        ></div>
-        <div class="container">
-            <!-- Header -->
-            <div class="header">
-                <div>
-                    <div class="logo">
-                        Task<span>Flow</span>
-                        <span
-                            style="
-                                font-size: 10px;
-                                color: var(--muted);
-                                font-family:
-                                    &quot;JetBrains Mono&quot;, monospace;
-                                font-weight: 400;
-                            "
-                            >v1.5.0</span
-                        >
-                    </div>
-                    <div
-                        style="
-                            font-size: 11px;
-                            color: var(--muted);
-                            margin-top: 4px;
-                        "
-                    >
-                        Time tracking for interrupted workflows
-                    </div>
-                </div>
-                <div
-                    style="
-                        display: flex;
-                        align-items: flex-end;
-                        gap: 16px;
-                        flex-wrap: wrap;
-                    "
-                >
-                    <div class="header-meta">
-                        <div
-                            style="
-                                display: flex;
-                                align-items: center;
-                                gap: 12px;
-                            "
-                        >
-                            <div id="live-clock">--:--:--</div>
-                            <div
-                                id="today-date"
-                                style="color: var(--muted); white-space: nowrap"
-                            >
-                                --
-                            </div>
-                        </div>
-                    </div>
-                    <div id="auth-bar" class="auth-bar"></div>
-                </div>
-            </div>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TaskFlow — Time Tracker</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0d0d0f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="starfield"><canvas id="star-canvas"></canvas></div>
+<div id="sync-status" class="sync-status" style="position:fixed;top:12px;right:16px;z-index:10;"></div>
+<div class="container">
 
-            <!-- Auth Wall (shown when not logged in) -->
-            <div id="auth-wall" class="auth-wall" style="display: none">
-                <div style="font-size: 48px; margin-bottom: 16px">&#9201;</div>
-                <div
-                    style="
-                        font-family: &quot;Syne&quot;, sans-serif;
-                        font-size: 22px;
-                        font-weight: 700;
-                        color: var(--text);
-                        margin-bottom: 8px;
-                    "
-                >
-                    Chào mừng đến TaskFlow
-                </div>
-                <div>Đăng nhập để đồng bộ tasks trên mọi thiết bị</div>
-                <button class="btn-google" onclick="googleLogin()">
-                    <img
-                        src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
-                        alt="G"
-                    />
-                    Đăng nhập với Google
-                </button>
-            </div>
-
-            <!-- Loading -->
-            <div
-                id="app-loading"
-                style="display: none; text-align: center; padding: 80px 20px"
-            >
-                <div class="loading-spinner"></div>
-                <div
-                    style="
-                        margin-top: 16px;
-                        color: var(--muted);
-                        font-size: 12px;
-                    "
-                >
-                    Đang tải dữ liệu...
-                </div>
-            </div>
-
-            <!-- App content (hidden when not logged in) -->
-            <div id="app-content" style="display: none">
-                <!-- Stats -->
-                <div class="summary-grid" id="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-label">Hôm nay</div>
-                        <div class="stat-value accent" id="stat-total">
-                            00:00:00
-                        </div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Đang chạy</div>
-                        <div class="stat-value blue" id="stat-active">—</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Bị pending</div>
-                        <div class="stat-value red" id="stat-pending">0</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Hoàn thành</div>
-                        <div class="stat-value green" id="stat-done">0</div>
-                    </div>
-                </div>
-
-                <!-- Add Task -->
-                <div class="add-section">
-                    <div class="add-section-title">// Thêm task mới</div>
-                    <div class="add-row">
-                        <div class="input-wrap">
-                            <input
-                                type="text"
-                                id="task-input"
-                                placeholder="Tên task (vd: Fix bug #142, Review PR...)"
-                                autocomplete="off"
-                            />
-                        </div>
-                        <input
-                            type="text"
-                            id="estimate-input"
-                            inputmode="decimal"
-                            placeholder="Giờ (vd: 0.5, 1, 2)"
-                            style="
-                                width: 140px;
-                                background: var(--bg);
-                                border: 1px solid var(--border);
-                                border-radius: 6px;
-                                padding: 10px 14px;
-                                color: var(--text);
-                                font-family:
-                                    &quot;JetBrains Mono&quot;, monospace;
-                                font-size: 12px;
-                                outline: none;
-                            "
-                        />
-                        <button class="btn btn-primary" onclick="addTask()">
-                            ＋ Thêm & Bắt đầu
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Active Task -->
-                <div id="active-section"></div>
-
-                <!-- Pending Stack -->
-                <div id="pending-section"></div>
-
-                <!-- Done -->
-                <div id="done-section"></div>
-            </div>
-            <!-- /app-content -->
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <div class="logo">Task<span>Flow</span> <span style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;font-weight:400;">v1.5.0</span></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Time tracking for interrupted workflows</div>
+    </div>
+    <div style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;">
+      <div class="header-meta">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div id="live-clock">--:--:--</div>
+          <div id="today-date" style="color:var(--muted);white-space:nowrap;">--</div>
         </div>
+      </div>
+      <div id="auth-bar" class="auth-bar"></div>
+    </div>
+  </div>
 
-        <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-        <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-        <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-        <script src="app.js"></script>
+  <!-- Auth Wall (shown when not logged in) -->
+  <div id="auth-wall" class="auth-wall" style="display:none;">
+    <div style="font-size:48px;margin-bottom:16px;">&#9201;</div>
+    <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:var(--text);margin-bottom:8px;">Chào mừng đến TaskFlow</div>
+    <div>Đăng nhập để đồng bộ tasks trên mọi thiết bị</div>
+    <button class="btn-google" onclick="googleLogin()">
+      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G" />
+      Đăng nhập với Google
+    </button>
+  </div>
 
-        <!-- Start of Cogover Chat Widget script -->
-        <div id="cogover-live-chat"></div>
-        <script
-            type="text/javascript"
-            id="cogoverChatWidget"
-            src="https://long03.release.cogover.net/js/live-chat-embed.js"
-        ></script>
-        <script>
-            const liveChatInstance = window.CogoverLiveChat.init({
-                container: "#cogover-live-chat",
-                workspaceId: "WSsgfBnZoNrPA",
-                pageId: "PAGTFMSQ7ELHXL",
-            });
-        </script>
-        <!-- End of  Cogover Chat Widget script -->
-    </body>
+  <!-- Loading -->
+  <div id="app-loading" style="display:none;text-align:center;padding:80px 20px;">
+    <div class="loading-spinner"></div>
+    <div style="margin-top:16px;color:var(--muted);font-size:12px;">Đang tải dữ liệu...</div>
+  </div>
+
+  <!-- App content (hidden when not logged in) -->
+  <div id="app-content" style="display:none;">
+
+  <!-- Stats -->
+  <div class="summary-grid" id="stats-grid">
+    <div class="stat-card">
+      <div class="stat-label">Hôm nay</div>
+      <div class="stat-value accent" id="stat-total">00:00:00</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Đang chạy</div>
+      <div class="stat-value blue" id="stat-active">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Bị pending</div>
+      <div class="stat-value red" id="stat-pending">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Hoàn thành</div>
+      <div class="stat-value green" id="stat-done">0</div>
+    </div>
+  </div>
+
+  <!-- Add Task -->
+  <div class="add-section">
+    <div class="add-section-title">// Thêm task mới</div>
+    <div class="add-row">
+      <div class="input-wrap">
+        <input type="text" id="task-input" placeholder="Tên task (vd: Fix bug #142, Review PR...)" autocomplete="off" />
+      </div>
+      <input type="text" id="estimate-input" inputmode="decimal" placeholder="Giờ (vd: 0.5, 1, 2)" style="width:140px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 14px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none;" />
+      <button class="btn btn-primary" onclick="addTask()">
+        ＋ Thêm & Bắt đầu
+      </button>
+    </div>
+  </div>
+
+  <!-- Active Task -->
+  <div id="active-section"></div>
+
+  <!-- Pending Stack -->
+  <div id="pending-section"></div>
+
+  <!-- Done -->
+  <div id="done-section"></div>
+
+  </div><!-- /app-content -->
+
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="app.js"></script>
+</body>
 </html>
