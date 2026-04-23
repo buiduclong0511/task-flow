@@ -421,6 +421,225 @@ function resumeTask(id) {
   renderStats();
 }
 
+// ── Edit Modal ─────────────────────────────────────────
+let editingId = null;
+let editModalOpener = null;
+
+function findTaskById(id) {
+  return tasks.find(t => t.id === id) || allDoneCache.find(t => t.id === id) || null;
+}
+
+function toDatetimeLocal(ms) {
+  const d = new Date(ms);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function setFieldError(errEl, msg) {
+  if (!errEl) return;
+  if (msg) {
+    errEl.textContent = msg;
+    errEl.classList.add('show');
+  } else {
+    errEl.textContent = '';
+    errEl.classList.remove('show');
+  }
+}
+
+function clearEditErrors() {
+  setFieldError(document.getElementById('edit-name-error'), '');
+  setFieldError(document.getElementById('edit-start-error'), '');
+  document.getElementById('edit-name').style.borderColor = '';
+  document.getElementById('edit-start').style.borderColor = '';
+}
+
+function openEditModal(id) {
+  const task = findTaskById(id);
+  if (!task) return;
+  editingId = id;
+  editModalOpener = document.activeElement;
+
+  const nameInput = document.getElementById('edit-name');
+  const startInput = document.getElementById('edit-start');
+  const hint = document.getElementById('edit-start-hint');
+
+  clearEditErrors();
+  nameInput.value = task.name;
+  const startMs = task.status === 'active'
+    ? (task.startedAt || task.createdAt || Date.now())
+    : (task.createdAt || Date.now());
+  startInput.value = toDatetimeLocal(startMs);
+
+  if (task.status === 'active') {
+    hint.textContent = 'Thời gian bắt đầu phiên hiện tại. Thay đổi sẽ điều chỉnh bộ đếm.';
+  } else {
+    hint.textContent = 'Thời gian task được tạo.';
+  }
+
+  const modal = document.getElementById('edit-modal');
+  modal.style.display = 'flex';
+  modal.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('modal-open');
+  setTimeout(() => { nameInput.focus(); nameInput.select(); }, 30);
+}
+
+function closeEditModal() {
+  const wasOpen = !!editingId;
+  editingId = null;
+  const modal = document.getElementById('edit-modal');
+  modal.style.display = 'none';
+  modal.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('modal-open');
+  clearEditErrors();
+  if (wasOpen && editModalOpener && typeof editModalOpener.focus === 'function') {
+    editModalOpener.focus();
+  }
+  editModalOpener = null;
+}
+
+function handleModalOverlayClick(e) {
+  if (e.target.id === 'edit-modal') closeEditModal();
+}
+
+function handleTaskClickKey(e, id) {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    openEditModal(id);
+  }
+}
+
+async function saveEditTask() {
+  if (!editingId) return;
+  const id = editingId;
+  const nameInput = document.getElementById('edit-name');
+  const startInput = document.getElementById('edit-start');
+  const nameErr = document.getElementById('edit-name-error');
+  const startErr = document.getElementById('edit-start-error');
+
+  const name = nameInput.value.trim();
+  const startStr = startInput.value;
+
+  clearEditErrors();
+
+  let hasError = false;
+  if (!name) {
+    setFieldError(nameErr, 'Tên task không được để trống');
+    nameInput.style.borderColor = 'var(--danger)';
+    nameInput.focus();
+    hasError = true;
+  }
+  if (!startStr) {
+    setFieldError(startErr, 'Vui lòng chọn thời gian bắt đầu');
+    startInput.style.borderColor = 'var(--danger)';
+    if (!hasError) startInput.focus();
+    hasError = true;
+  } else {
+    const startMs = new Date(startStr).getTime();
+    if (isNaN(startMs)) {
+      setFieldError(startErr, 'Thời gian không hợp lệ');
+      startInput.style.borderColor = 'var(--danger)';
+      if (!hasError) startInput.focus();
+      hasError = true;
+    } else if (startMs > Date.now() + 60000) {
+      setFieldError(startErr, 'Thời gian không được ở tương lai');
+      startInput.style.borderColor = 'var(--danger)';
+      if (!hasError) startInput.focus();
+      hasError = true;
+    }
+  }
+  if (hasError) return;
+
+  const startMs = new Date(startStr).getTime();
+  const task = findTaskById(id);
+  if (!task) { closeEditModal(); return; }
+  const isDone = task.status === 'done';
+
+  task.name = name;
+  if (task.status === 'active') {
+    task.startedAt = startMs;
+  } else {
+    task.createdAt = startMs;
+  }
+
+  save();
+  await saveTask(task);
+  closeEditModal();
+
+  if (isDone) {
+    await fetchDoneTasks('first');
+    renderStats();
+  } else {
+    renderActive();
+    renderPending();
+    renderStats();
+  }
+}
+
+function trapModalFocus(e) {
+  if (!editingId || e.key !== 'Tab') return;
+  const modal = document.getElementById('edit-modal');
+  const focusable = modal.querySelectorAll('input, button, [tabindex]:not([tabindex="-1"])');
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && editingId) {
+    e.preventDefault();
+    closeEditModal();
+    return;
+  }
+  trapModalFocus(e);
+});
+
+document.getElementById('edit-name').addEventListener('input', () => {
+  document.getElementById('edit-name').style.borderColor = '';
+  setFieldError(document.getElementById('edit-name-error'), '');
+});
+document.getElementById('edit-start').addEventListener('input', () => {
+  document.getElementById('edit-start').style.borderColor = '';
+  setFieldError(document.getElementById('edit-start-error'), '');
+});
+document.getElementById('edit-name').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); saveEditTask(); }
+});
+document.getElementById('edit-start').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); saveEditTask(); }
+});
+
+async function resumeDoneTask(id) {
+  const task = allDoneCache.find(t => t.id === id);
+  if (!task) return;
+
+  if (activeId) {
+    pauseTask(activeId, false);
+  }
+
+  task.status = 'active';
+  task.startedAt = Date.now();
+  task.completedAt = null;
+  activeId = id;
+
+  allDoneCache = allDoneCache.filter(t => t.id !== id);
+  doneTasks = doneTasks.filter(t => t.id !== id);
+  tasks.unshift(task);
+
+  save();
+  await saveTask(task);
+  await fetchDoneTasks('first');
+  renderActive();
+  renderPending();
+  renderStats();
+}
+
 // ── Render ─────────────────────────────────────────────
 function startTick() {
   clearInterval(tickInterval);
@@ -458,7 +677,7 @@ function renderActive() {
         <span class="pulse"></span>
         ĐANG CHẠY
       </div>
-      <div class="active-name">${escHtml(task.name)}</div>
+      <div class="active-name task-clickable" onclick="openEditModal('${task.id}')" onkeydown="handleTaskClickKey(event, '${task.id}')" role="button" tabindex="0" aria-label="Sửa task ${escHtml(task.name)}" title="Click hoặc Enter để sửa">${escHtml(task.name)}</div>
       <div class="active-meta">
         <div class="timer-display" id="active-timer">${fmtTime(elapsed)}</div>
         ${task.estimateMs ? (() => {
@@ -496,7 +715,7 @@ function renderPending() {
       const elapsed = getElapsed(task);
       html += `
       <div class="task-item pending">
-        <div class="task-info">
+        <div class="task-info task-clickable" onclick="openEditModal('${task.id}')" onkeydown="handleTaskClickKey(event, '${task.id}')" role="button" tabindex="0" aria-label="Sửa task ${escHtml(task.name)}" title="Click hoặc Enter để sửa">
           <div class="task-name">${escHtml(task.name)}</div>
           <div class="task-time-info">
             <span class="time-chip elapsed">⏱ Đã làm: ${fmtShort(elapsed)}</span>
@@ -566,7 +785,7 @@ function renderDone(isSearchResult) {
       const elapsed = task.elapsed || 0;
       html += `
       <div class="task-item done">
-        <div class="task-info">
+        <div class="task-info task-clickable" onclick="openEditModal('${task.id}')" onkeydown="handleTaskClickKey(event, '${task.id}')" role="button" tabindex="0" aria-label="Sửa task ${escHtml(task.name)}" title="Click hoặc Enter để sửa">
           <div class="task-name done-text">${escHtml(task.name)}</div>
           <div class="task-time-info">
             <span class="time-chip">Total: ${fmtShort(elapsed)} (${(elapsed / 3600000).toFixed(2)}h)</span>
@@ -574,6 +793,7 @@ function renderDone(isSearchResult) {
           </div>
         </div>
         <div class="task-actions">
+          <button class="btn btn-ghost btn-sm" onclick="resumeDoneTask('${task.id}')">▶ Resume</button>
           <button class="btn btn-danger btn-sm" onclick="deleteTask('${task.id}')">✕</button>
         </div>
       </div>`;

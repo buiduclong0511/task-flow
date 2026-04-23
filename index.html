@@ -100,6 +100,29 @@
 
   </div><!-- /app-content -->
 
+  <!-- Edit Task Modal -->
+  <div id="edit-modal" class="modal-overlay" style="display:none;" onclick="handleModalOverlayClick(event)" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title" aria-hidden="true">
+    <div class="modal" role="document">
+      <div class="modal-header">
+        <div class="modal-title" id="edit-modal-title">Sửa task</div>
+        <button type="button" class="modal-close" onclick="closeEditModal()" aria-label="Đóng">✕</button>
+      </div>
+      <div class="modal-body">
+        <label class="modal-label" for="edit-name">Tên task</label>
+        <input type="text" id="edit-name" class="modal-input" autocomplete="off" aria-describedby="edit-name-error" />
+        <div class="modal-error" id="edit-name-error" role="alert" aria-live="polite"></div>
+        <label class="modal-label" for="edit-start">Thời gian bắt đầu</label>
+        <input type="datetime-local" id="edit-start" class="modal-input" step="1" aria-describedby="edit-start-hint edit-start-error" />
+        <div class="modal-error" id="edit-start-error" role="alert" aria-live="polite"></div>
+        <div class="modal-hint" id="edit-start-hint"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeEditModal()">Hủy</button>
+        <button type="button" class="btn btn-primary" onclick="saveEditTask()">Lưu</button>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
